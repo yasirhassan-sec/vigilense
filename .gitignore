@@ -1,0 +1,10 @@
+﻿.venv/
+data/
+weights/
+evidence/
+runs/
+node_modules/
+*.pt
+*.mp4
+bus.jpg
+__pycache__/
