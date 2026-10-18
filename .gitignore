@@ -1,10 +1,23 @@
-﻿.venv/
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Big or private files (share through Google Drive instead)
 data/
 weights/
 evidence/
 runs/
-node_modules/
 *.pt
 *.mp4
+*.avi
+*.zip
+*.db
 bus.jpg
-__pycache__/
+
+# Secrets (camera passwords, API keys)
+.env
+
+# Dashboard
+node_modules/
+dashboard/dist/
