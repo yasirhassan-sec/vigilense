@@ -16,8 +16,8 @@ with evidence on a web dashboard.
 | Environment (Python 3.11, PyTorch, Ultralytics YOLO26) | Done |
 | Fire & smoke model `fire_smoke_v1` (YOLO26n, D-Fire) | Done: test mAP50 0.780, precision 0.783, recall 0.716 |
 | End-to-end skeleton (`backend/app.py`) | Done: video → detection → SQLite incident + snapshot → live web page |
+| Multi-camera (3+ feeds) with priority-based main view | Done (first version): batched detection, camera grid, auto camera switching |
 | Weapon model (gun, knife) | Planned |
-| Multi-camera (3 feeds) | Planned |
 | Tracking (ByteTrack/BoT-SORT) and cross-camera re-ID (OSNet) | Planned |
 | React dashboard, alerts, evidence clips | Planned |
 
@@ -50,12 +50,13 @@ data/fire.mp4               # any test video
 ## Run
 
 ```powershell
-python backend\app.py --source data\fire.mp4     # video file
-python backend\app.py --source 0                 # webcam
+python backend\app.py --source data\cam1.mp4 data\cam2.mp4 data\cam3.mp4   # 3 cameras
+python backend\app.py --source data\fire.mp4                              # one video
+python backend\app.py --source 0                                          # webcam
 ```
 
-Open http://127.0.0.1:8000. Useful options: `--conf 0.35` (fire/smoke threshold),
-`--every 3` (detect every Nth frame), `--camera CAM-1`, `--cooldown 10`.
+Open http://127.0.0.1:8000. Useful options: `--names Gate Lobby Lab`, `--conf 0.35` (fire/smoke threshold),
+`--cooldown 10`, `--width 640`. See [RUN_COMMANDS.md](RUN_COMMANDS.md) for every command.
 
 Incidents are saved in `evidence/incidents.db` with snapshots in `evidence/`.
 

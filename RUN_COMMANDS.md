@@ -21,18 +21,24 @@ git pull                             # get your teammates' latest changes from G
 After starting, open **http://127.0.0.1:8000** in your browser.
 
 ```powershell
-python backend\app.py --source data\fire.mp4                       # run on a video file
-python backend\app.py --source 0                                   # run on your laptop webcam
-python backend\app.py --source "rtsp://user:pass@IP:554/stream"    # run on an IP camera (later)
+python backend\app.py --source data\cam1.mp4 data\cam2.mp4 data\cam3.mp4   # 3 cameras (videos) at once
+python backend\app.py --source data\fire.mp4                              # one video
+python backend\app.py --source 0                                          # laptop webcam
+python backend\app.py --source 0 data\fire.mp4 data\cam3.mp4              # mix webcam and videos
+python backend\app.py --source "rtsp://user:pass@IP:554/stream"           # IP camera (later)
 ```
+
+The page shows a **main view** (the camera with the highest priority: fire 100, smoke 60, +2 per person),
+a **camera grid** (red border = threat, blue outline = current main view) and the **incident list**.
 
 Optional settings (add to any command above):
 
 ```powershell
+python backend\app.py --source data\cam1.mp4 data\cam2.mp4 --names Gate Lobby   # camera names (default CAM-1, CAM-2, ...)
 python backend\app.py --source data\fire.mp4 --conf 0.25      # lower = catches more fire, more false alarms (default 0.35)
-python backend\app.py --source data\fire.mp4 --every 5        # detect on every 5th frame = faster on CPU (default 3)
-python backend\app.py --source data\fire.mp4 --camera CAM-2   # camera name shown in incidents (default CAM-1)
-python backend\app.py --source data\fire.mp4 --cooldown 30    # seconds before the same alert repeats (default 10)
+python backend\app.py --source data\fire.mp4 --every 2        # skip loops to save CPU (default 1 = every loop)
+python backend\app.py --source data\fire.mp4 --cooldown 30    # seconds before the same alert repeats on a camera (default 10)
+python backend\app.py --source data\fire.mp4 --width 480      # smaller frames = faster on CPU (default 640)
 python backend\app.py --source data\fire.mp4 --port 8001      # use another port if 8000 is busy
 ```
 
