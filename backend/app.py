@@ -2,7 +2,7 @@
 VigiLense - multi-camera skeleton
 
   camera 1 ┐                                   ┌─> SQLite incident log + snapshots
-  camera 2 ├─> YOLO (persons + fire/smoke) ────┼─> priority score per camera
+  camera 2 ├─> YOLO (persons + fire/smoke + weapons) ────┼─> priority score per camera
   camera 3 ┘   one batched pass for all cams   └─> web page: camera grid + auto "main view"
 
 Run from the project root (C:\\vigilense) inside the venv:
@@ -37,7 +37,9 @@ parser.add_argument("--source", nargs="+", default=["data/fire.mp4"],
 parser.add_argument("--names", nargs="+", help="camera names, same order as --source (default CAM-1, CAM-2, ...)")
 parser.add_argument("--person-model", default="weights/yolo26n.pt")
 parser.add_argument("--threat-model", default="weights/fire_smoke_v1.pt")
+parser.add_argument("--weapon-model", default="weights/weapons_v1.pt", help="gun/knife model (skipped if the file is missing)")
 parser.add_argument("--conf", type=float, default=0.35, help="min confidence for fire/smoke")
+parser.add_argument("--weapon-conf", type=float, default=0.5, help="min confidence for gun/knife")
 parser.add_argument("--every", type=int, default=1, help="skip frames: process each camera every Nth loop")
 parser.add_argument("--cooldown", type=float, default=10.0, help="seconds before the same alert repeats on a camera")
 parser.add_argument("--width", type=int, default=640, help="resize frames to this width")
@@ -49,7 +51,7 @@ if len(NAMES) != len(args.source):
     parser.error("--names must have the same count as --source")
 
 # How important each event is. Highest-scoring camera becomes the main view.
-PRIORITY = {"fire": 100, "smoke": 60}
+PRIORITY = {"gun": 120, "knife": 90, "fire": 100, "smoke": 60}
 PER_PERSON = 2  # small bonus per visible person
 
 
@@ -151,7 +153,7 @@ def draw(frame, person_boxes, threats, name, score):
     for x1, y1, x2, y2 in person_boxes:
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 180, 0), 2)
     for label, conf, (x1, y1, x2, y2) in threats:
-        color = (0, 0, 255) if label == "fire" else (160, 160, 160)
+        color = {"fire": (0, 0, 255), "gun": (0, 0, 200), "knife": (0, 120, 255)}.get(label, (160, 160, 160))
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
         cv2.putText(frame, f"{label} {conf:.2f}", (int(x1), max(15, int(y1) - 5)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -162,7 +164,12 @@ def draw(frame, person_boxes, threats, name, score):
 def detection_loop():
     person_model = YOLO(str(resolve(args.person_model)))
     threat_model = YOLO(str(resolve(args.threat_model)))
-    print("Threat classes:", threat_model.names, "| cameras:", ", ".join(NAMES))
+    weapon_path = resolve(args.weapon_model)
+    weapon_model = YOLO(str(weapon_path)) if weapon_path.exists() else None
+    if weapon_model is None:
+        print(f"WARNING: weapon model not found ({weapon_path}); running without gun/knife detection")
+    print("Threat classes:", threat_model.names, "| weapons:", weapon_model.names if weapon_model else "off",
+          "| cameras:", ", ".join(NAMES))
 
     n, t0 = 0, time.time()
     while True:
@@ -176,11 +183,15 @@ def detection_loop():
         frames = [f for _, f in batch]
         p_res = person_model.predict(frames, classes=[0], conf=0.4, verbose=False)   # one call for all cameras
         t_res = threat_model.predict(frames, conf=args.conf, verbose=False)
+        w_res = weapon_model.predict(frames, conf=args.weapon_conf, verbose=False) if weapon_model else [None] * len(frames)
 
-        for (cam, frame), p, t in zip(batch, p_res, t_res):
+        for (cam, frame), p, t, w in zip(batch, p_res, t_res, w_res):
             persons = [b.tolist() for b in p.boxes.xyxy]
             threats = [(t.names[int(c)], float(s), b.tolist())
                        for c, s, b in zip(t.boxes.cls, t.boxes.conf, t.boxes.xyxy)]
+            if w is not None:
+                threats += [(w.names[int(c)], float(s), b.tolist())
+                            for c, s, b in zip(w.boxes.cls, w.boxes.conf, w.boxes.xyxy)]
             best = {}
             for label, conf, _ in threats:
                 best[label] = max(conf, best.get(label, 0))
@@ -269,7 +280,7 @@ def index():
  .tile{border:3px solid transparent;border-radius:8px;padding:2px} .tile.alert{border-color:#ef4444}
  .tile.main{outline:2px solid #38bdf8} .cap{font-size:12px;padding:4px 2px}
  table{width:100%;border-collapse:collapse;font-size:13px} td,th{padding:6px;border-bottom:1px solid #2a3542;text-align:left}
- .fire{color:#f87171;font-weight:600} .smoke{color:#cbd5e1;font-weight:600} img.thumb{width:90px;height:60px}
+ .gun,.knife{color:#fb923c;font-weight:700} .fire{color:#f87171;font-weight:600} .smoke{color:#cbd5e1;font-weight:600} img.thumb{width:90px;height:60px}
  #inc{display:block;max-height:80vh;overflow-y:auto}
 </style></head><body>
 <h1>VigiLense &mdash; live monitor</h1>
