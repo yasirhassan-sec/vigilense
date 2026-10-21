@@ -10,6 +10,7 @@ evidence/
 runs/
 *.pt
 *.mp4
+!presentation/*.mp4
 *.avi
 *.zip
 *.db
