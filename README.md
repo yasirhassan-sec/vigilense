@@ -9,6 +9,11 @@ VigiLense monitors multiple camera feeds, detects persons, weapons, fire and smo
 across cameras, scores incidents by priority, switches to the most important camera, and logs alerts
 with evidence on a web dashboard.
 
+## Presentation video
+
+A 6:47 project overview (1080p, narrated): [presentation/VigiLense-presentation.mp4](presentation/VigiLense-presentation.mp4).
+Subtitles: [VigiLense-presentation.srt](presentation/VigiLense-presentation.srt) · Script: [NARRATION.md](presentation/NARRATION.md).
+
 ## Current status
 
 | Part | Status |
