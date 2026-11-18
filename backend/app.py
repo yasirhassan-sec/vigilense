@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -44,7 +45,13 @@ parser.add_argument("--every", type=int, default=1, help="skip frames: process e
 parser.add_argument("--cooldown", type=float, default=10.0, help="seconds before the same alert repeats on a camera")
 parser.add_argument("--width", type=int, default=640, help="resize frames to this width")
 parser.add_argument("--port", type=int, default=8000)
+parser.add_argument("--device", default=None,
+                    help="'0' for the first GPU or 'cpu' (default: GPU if available, otherwise CPU)")
 args = parser.parse_args()
+
+# Use the GPU when there is one, otherwise the CPU, so the app also runs on laptops without NVIDIA.
+DEVICE = args.device if args.device is not None else (0 if torch.cuda.is_available() else "cpu")
+print("Inference device:", DEVICE)
 
 NAMES = args.names or [f"CAM-{i + 1}" for i in range(len(args.source))]
 if len(NAMES) != len(args.source):
@@ -179,12 +186,22 @@ def detection_loop():
             n += 1
             time.sleep(0.01)
             continue
-
         frames = [f for _, f in batch]
-        p_res = person_model.predict(frames, classes=[0], conf=0.4, verbose=False)   # one call for all cameras
-        t_res = threat_model.predict(frames, conf=args.conf, verbose=False)
-        w_res = weapon_model.predict(frames, conf=args.weapon_conf, verbose=False) if weapon_model else [None] * len(frames)
 
+        p_res = person_model.predict(
+            frames, classes=[0], conf=0.4,
+            device=DEVICE, verbose=False
+        )
+
+        t_res = threat_model.predict(
+            frames, conf=args.conf,
+            device=DEVICE, verbose=False
+        )
+
+        w_res = weapon_model.predict(
+            frames, conf=args.weapon_conf,
+            device=DEVICE, verbose=False
+        ) if weapon_model else [None] * len(batch)
         for (cam, frame), p, t, w in zip(batch, p_res, t_res, w_res):
             persons = [b.tolist() for b in p.boxes.xyxy]
             threats = [(t.names[int(c)], float(s), b.tolist())
