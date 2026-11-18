@@ -21,3 +21,14 @@ bus.jpg
 # Dashboard
 node_modules/
 dashboard/dist/
+# Datasets (too big; re-create with download_weapon_dataset.py + build_clean_dataset.py)
+datasets/
+.venv_old/
+
+# Generated inspection output
+class_samples.jpg
+class*_samples.jpg
+class*_samples.csv
+dup_pairs*.jpg
+near_dups.csv
+groups.csv
