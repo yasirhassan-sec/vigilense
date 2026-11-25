@@ -10,10 +10,15 @@ Run from the project root (C:\\vigilense) inside the venv:
     python backend\\app.py --source data\\fire.mp4            (one camera still works)
     python backend\\app.py --source 0 data\\fire.mp4           (webcam + a video)
 Then open http://127.0.0.1:8000
+
+False-alarm controls (on by default):
+  --confirm 3 --window 5   a threat must be seen in 3 of the last 5 loops before it alerts (--confirm 1 = off)
+  --no-lookalike           turn off the phone/remote/mouse filter for gun/knife boxes
 """
 
 import argparse
 import sqlite3
+from collections import defaultdict, deque
 import threading
 import time
 from datetime import datetime
@@ -45,9 +50,18 @@ parser.add_argument("--every", type=int, default=1, help="skip frames: process e
 parser.add_argument("--cooldown", type=float, default=10.0, help="seconds before the same alert repeats on a camera")
 parser.add_argument("--width", type=int, default=640, help="resize frames to this width")
 parser.add_argument("--port", type=int, default=8000)
+parser.add_argument("--confirm", type=int, default=3,
+                    help="a threat must appear in this many of the last --window loops before it alerts (1 = off)")
+parser.add_argument("--window", type=int, default=5, help="number of recent loops used by --confirm")
+parser.add_argument("--no-lookalike", action="store_true",
+                    help="do not drop gun/knife boxes that sit on a phone/remote/mouse found by the person model")
+parser.add_argument("--lookalike-overlap", type=float, default=0.5,
+                    help="drop a gun/knife box when this share of the smaller box overlaps a look-alike object")
 parser.add_argument("--device", default=None,
                     help="'0' for the first GPU or 'cpu' (default: GPU if available, otherwise CPU)")
 args = parser.parse_args()
+if not 1 <= args.confirm <= args.window:
+    parser.error("--confirm must be between 1 and --window")
 
 # Use the GPU when there is one, otherwise the CPU, so the app also runs on laptops without NVIDIA.
 DEVICE = args.device if args.device is not None else (0 if torch.cuda.is_available() else "cpu")
@@ -60,6 +74,36 @@ if len(NAMES) != len(args.source):
 # How important each event is. Highest-scoring camera becomes the main view.
 PRIORITY = {"gun": 120, "knife": 90, "fire": 100, "smoke": 60}
 PER_PERSON = 2  # small bonus per visible person
+WEAPONS = {"gun", "knife"}
+
+# COCO objects (person model) that the weapon model confuses with guns/knives.
+# Scissors are left out on purpose: they are sharp and should still raise "knife".
+LOOKALIKE = {64: "mouse", 65: "remote", 67: "cell phone"}
+
+
+def overlap(a, b):
+    """Intersection divided by the area of the smaller box (1.0 = one box lies inside the other)."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return ix * iy / small if small > 0 else 0.0
+
+
+def iou(a, b):
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def one_label_per_object(weapons, thr=0.6):
+    """If gun and knife boxes cover the same object, keep only the more confident one."""
+    kept = []
+    for w in sorted(weapons, key=lambda x: -x[1]):
+        if all(iou(w[2], k[2]) < thr for k in kept):
+            kept.append(w)
+    return kept
 
 
 def resolve(p: str) -> Path:
@@ -117,6 +161,7 @@ class Camera:
         self.fps = 0.0
         self.online = False
         self.last_alert = {}
+        self.history = defaultdict(lambda: deque(maxlen=args.window))   # label -> recent loops seen (True/False)
         self.lock = threading.Lock()
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -156,14 +201,23 @@ state = {"main": 0, "loop_fps": 0.0}
 
 
 # ---------------------------------------------------------------- detection loop
-def draw(frame, person_boxes, threats, name, score):
+def draw(frame, person_boxes, threats, name, score, confirmed=(), dropped=(), lookalikes=()):
     for x1, y1, x2, y2 in person_boxes:
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 180, 0), 2)
+    for obj, conf, (x1, y1, x2, y2) in lookalikes:                 # phone / remote / mouse: thin grey
+        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (170, 170, 170), 1)
+        cv2.putText(frame, f"{obj} {conf:.2f}", (int(x1), min(frame.shape[0] - 5, int(y2) + 14)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (170, 170, 170), 1)
+    for label, conf, (x1, y1, x2, y2) in dropped:                  # weapon box ignored because it is a phone etc.
+        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (120, 120, 120), 1)
+        cv2.putText(frame, f"{label}? {conf:.2f} ignored", (int(x1), max(15, int(y1) - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1)
     for label, conf, (x1, y1, x2, y2) in threats:
         color = {"fire": (0, 0, 255), "gun": (0, 0, 200), "knife": (0, 120, 255)}.get(label, (160, 160, 160))
-        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-        cv2.putText(frame, f"{label} {conf:.2f}", (int(x1), max(15, int(y1) - 5)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        ok = label in confirmed
+        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2 if ok else 1)
+        cv2.putText(frame, f"{label} {conf:.2f}" + ("" if ok else " (checking)"), (int(x1), max(15, int(y1) - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2 if ok else 1)
     cv2.putText(frame, f"{name}  score {score}", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     return frame
 
@@ -177,6 +231,9 @@ def detection_loop():
         print(f"WARNING: weapon model not found ({weapon_path}); running without gun/knife detection")
     print("Threat classes:", threat_model.names, "| weapons:", weapon_model.names if weapon_model else "off",
           "| cameras:", ", ".join(NAMES))
+    print(f"Weapon model: {weapon_path.name if weapon_model else 'off'} | confirm {args.confirm} of {args.window} loops"
+          f" | look-alike filter {'off' if args.no_lookalike else 'on (phone, remote, mouse)'}")
+    person_classes = [0] if args.no_lookalike else [0, *LOOKALIKE]
 
     n, t0 = 0, time.time()
     while True:
@@ -189,7 +246,7 @@ def detection_loop():
         frames = [f for _, f in batch]
 
         p_res = person_model.predict(
-            frames, classes=[0], conf=0.4,
+            frames, classes=person_classes, conf=0.25,
             device=DEVICE, verbose=False
         )
 
@@ -203,26 +260,43 @@ def detection_loop():
             device=DEVICE, verbose=False
         ) if weapon_model else [None] * len(batch)
         for (cam, frame), p, t, w in zip(batch, p_res, t_res, w_res):
-            persons = [b.tolist() for b in p.boxes.xyxy]
+            persons, lookalikes = [], []
+            for c, s, b in zip(p.boxes.cls, p.boxes.conf, p.boxes.xyxy):
+                c, s, b = int(c), float(s), b.tolist()
+                if c == 0 and s >= 0.4:
+                    persons.append(b)
+                elif c in LOOKALIKE:
+                    lookalikes.append((LOOKALIKE[c], s, b))
             threats = [(t.names[int(c)], float(s), b.tolist())
                        for c, s, b in zip(t.boxes.cls, t.boxes.conf, t.boxes.xyxy)]
+            dropped = []
             if w is not None:
-                threats += [(w.names[int(c)], float(s), b.tolist())
-                            for c, s, b in zip(w.boxes.cls, w.boxes.conf, w.boxes.xyxy)]
+                weapons = one_label_per_object([(w.names[int(c)], float(s), b.tolist())
+                                                for c, s, b in zip(w.boxes.cls, w.boxes.conf, w.boxes.xyxy)])
+                for wb in weapons:
+                    if any(overlap(wb[2], lb[2]) >= args.lookalike_overlap for lb in lookalikes):
+                        dropped.append(wb)                             # it is a phone/remote/mouse, not a weapon
+                    else:
+                        threats.append(wb)
             best = {}
             for label, conf, _ in threats:
                 best[label] = max(conf, best.get(label, 0))
-            score = max([PRIORITY.get(l, 0) for l in best] + [0]) + PER_PERSON * len(persons)
 
-            annotated = draw(frame, persons, threats, cam.name, score)
-            for label, conf in best.items():                       # one alert per class per cooldown
+            # multi-frame confirmation: a class counts only if seen in --confirm of the last --window loops
+            for label in set(cam.history) | set(best):
+                cam.history[label].append(label in best)
+            confirmed = {l: c for l, c in best.items() if sum(cam.history[l]) >= args.confirm}
+
+            score = max([PRIORITY.get(l, 0) for l in confirmed] + [0]) + PER_PERSON * len(persons)
+            annotated = draw(frame, persons, threats, cam.name, score, confirmed, dropped, lookalikes)
+            for label, conf in confirmed.items():                  # one alert per class per cooldown
                 if time.time() - cam.last_alert.get(label, 0) > args.cooldown:
                     cam.last_alert[label] = time.time()
                     log_incident(cam.name, label, conf, len(persons), annotated)
 
             with cam.lock:
                 cam.annotated, cam.persons, cam.score = annotated, len(persons), score
-                cam.threats = [(l, round(c, 2)) for l, c in best.items()]
+                cam.threats = [(l, round(c, 2)) for l, c in confirmed.items()]
 
         # dynamic camera switching: show the highest-priority camera, keep the current one on ties
         top = max(cams, key=lambda c: c.score)

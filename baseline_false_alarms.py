@@ -18,7 +18,7 @@ import torch
 from ultralytics import YOLO
 
 THREAT = "weights/fire_smoke_v1.pt"
-WEAPON = "weights/weapons_v1.pt"
+WEAPON = "weights/weapons_v2.pt"
 BASE = Path("datasets/VigilenseWebcam")
 LEVELS = (0.35, 0.5, 0.7)          # confidence levels to compare
 FLOOR = min(LEVELS)                # the models are run at the lowest level, then counted at each level
