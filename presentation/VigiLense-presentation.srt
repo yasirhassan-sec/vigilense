@@ -1,0 +1,503 @@
+1
+00:00:01,303 --> 00:00:04,878
+Somewhere right now, a security operator is watching forty
+
+2
+00:00:04,898 --> 00:00:06,050
+camera feeds.
+
+3
+00:00:06,239 --> 00:00:08,306
+Their attention can be on only one.
+
+4
+00:00:08,481 --> 00:00:10,471
+And in the few seconds they look away,
+
+5
+00:00:10,491 --> 00:00:13,499
+a weapon appears, smoke begins to rise,
+
+6
+00:00:13,648 --> 00:00:16,140
+or a person of interest slips out of view.
+
+7
+00:00:17,623 --> 00:00:19,485
+This is VigiLense:
+
+8
+00:00:19,505 --> 00:00:23,338
+an AI surveillance and incident response system that watches
+
+9
+00:00:23,358 --> 00:00:26,160
+every feed, understands what it sees,
+
+10
+00:00:26,180 --> 00:00:28,544
+and brings the most critical moment straight to the
+
+11
+00:00:28,564 --> 00:00:29,433
+operator.
+
+12
+00:00:30,923 --> 00:00:35,168
+Conventional CCTV depends almost entirely on human attention.
+
+13
+00:00:35,343 --> 00:00:38,442
+In universities, shopping malls, hospitals,
+
+14
+00:00:38,462 --> 00:00:41,122
+airports, banks and railway stations,
+
+15
+00:00:41,155 --> 00:00:44,317
+operators must observe many screens at once.
+
+16
+00:00:44,493 --> 00:00:47,269
+The result is fatigue, missed incidents,
+
+17
+00:00:47,289 --> 00:00:50,567
+delayed response, and poor situational awareness.
+
+18
+00:00:52,086 --> 00:00:53,534
+These systems are passive.
+
+19
+00:00:53,710 --> 00:00:56,757
+They record and display, but they cannot recognise a
+
+20
+00:00:56,777 --> 00:00:58,883
+weapon, fire or smoke.
+
+21
+00:00:59,058 --> 00:01:01,692
+A critical event can unfold on a feed that
+
+22
+00:01:01,712 --> 00:01:03,277
+is not on the main screen.
+
+23
+00:01:03,452 --> 00:01:05,532
+And when a person moves from one camera to
+
+24
+00:01:05,552 --> 00:01:09,707
+another, tracking ends, especially when their face is hidden,
+
+25
+00:01:09,754 --> 00:01:11,460
+covered, or turned away.
+
+26
+00:01:12,953 --> 00:01:15,935
+VigiLense answers this with clear objectives.
+
+27
+00:01:16,123 --> 00:01:20,342
+Build a real-time prototype with Ultralytics YOLO26,
+
+28
+00:01:20,389 --> 00:01:22,379
+OpenCV and Python.
+
+29
+00:01:22,554 --> 00:01:24,827
+Monitor at least three camera feeds.
+
+30
+00:01:25,002 --> 00:01:28,345
+Detect persons, weapons, fire and smoke.
+
+31
+00:01:28,520 --> 00:01:30,664
+Track people within each camera,
+
+32
+00:01:30,711 --> 00:01:33,333
+and follow a selected person across cameras with a
+
+33
+00:01:33,353 --> 00:01:34,428
+global ID.
+
+34
+00:01:34,603 --> 00:01:37,998
+Then prioritise events, switch the most important feed to
+
+35
+00:01:38,018 --> 00:01:40,600
+the dashboard, notify the operator,
+
+36
+00:01:40,646 --> 00:01:42,919
+and log every incident with evidence.
+
+37
+00:01:44,436 --> 00:01:45,575
+Here is how it works.
+
+38
+00:01:45,750 --> 00:01:48,488
+Each camera source, whether CCTV,
+
+39
+00:01:48,508 --> 00:01:52,495
+IP, RTSP, webcam or recorded video,
+
+40
+00:01:52,645 --> 00:01:55,343
+is registered with an ID and a location.
+
+41
+00:01:55,518 --> 00:01:59,364
+OpenCV captures each stream, extracts frames,
+
+42
+00:01:59,384 --> 00:02:03,590
+and resizes, normalises and enhances them for analysis.
+
+43
+00:02:05,093 --> 00:02:07,947
+YOLO26 is the main detection model.
+
+44
+00:02:08,173 --> 00:02:10,808
+For every frame it returns object classes,
+
+45
+00:02:10,828 --> 00:02:13,205
+bounding boxes and confidence scores,
+
+46
+00:02:13,225 --> 00:02:16,903
+for persons, weapon-like objects, fire and smoke.
+
+47
+00:02:17,091 --> 00:02:19,622
+Pretrained models are fine-tuned on public,
+
+48
+00:02:19,668 --> 00:02:21,916
+authorised and controlled datasets.
+
+49
+00:02:23,403 --> 00:02:27,610
+Next, ByteTrack or BoT-SORT gives every person a local
+
+50
+00:02:27,630 --> 00:02:30,212
+tracking ID inside each camera,
+
+51
+00:02:30,259 --> 00:02:33,009
+keeping identities stable from frame to frame,
+
+52
+00:02:33,184 --> 00:02:34,246
+even in a crowd.
+
+53
+00:02:35,756 --> 00:02:38,274
+When an operator marks a person of interest,
+
+54
+00:02:38,295 --> 00:02:40,735
+VigiLense extracts their appearance:
+
+55
+00:02:40,769 --> 00:02:44,035
+clothing, body shape, helmet, bag,
+
+56
+00:02:44,068 --> 00:02:45,478
+and other accessories.
+
+57
+00:02:45,653 --> 00:02:49,330
+An OSNet re-identification model, through Torchreid,
+
+58
+00:02:49,377 --> 00:02:52,901
+compares these features against people seen by other cameras.
+
+59
+00:02:54,393 --> 00:02:56,679
+When enough walking frames are available,
+
+60
+00:02:56,816 --> 00:02:59,734
+OpenGait adds gait and silhouette features.
+
+61
+00:02:59,909 --> 00:03:05,198
+Appearance, gait, camera location, timestamp and expected transition time
+
+62
+00:03:05,218 --> 00:03:08,354
+are fused into a single global person ID,
+
+63
+00:03:08,439 --> 00:03:11,215
+with a camera trail and last known location.
+
+64
+00:03:11,391 --> 00:03:12,968
+No face is required.
+
+65
+00:03:14,463 --> 00:03:16,466
+Every detection becomes an event.
+
+66
+00:03:16,654 --> 00:03:19,340
+The decision engine scores it by event type,
+
+67
+00:03:19,360 --> 00:03:22,445
+confidence, persistence and camera location,
+
+68
+00:03:22,504 --> 00:03:24,391
+so a weapon, a fire,
+
+69
+00:03:24,566 --> 00:03:27,188
+or the reappearance of a marked person rises above
+
+70
+00:03:27,208 --> 00:03:28,463
+routine activity.
+
+71
+00:03:29,956 --> 00:03:32,926
+The highest priority feed is switched automatically to the
+
+72
+00:03:32,946 --> 00:03:35,670
+primary view of a custom web dashboard,
+
+73
+00:03:35,794 --> 00:03:39,524
+alongside the multi-camera grid, live notifications,
+
+74
+00:03:39,544 --> 00:03:41,997
+the person trail, and system status.
+
+75
+00:03:43,496 --> 00:03:47,213
+Browser alerts and optional warning sounds notify the operator
+
+76
+00:03:47,233 --> 00:03:47,998
+instantly.
+
+77
+00:03:48,187 --> 00:03:51,285
+Snapshots and short evidence clips are saved,
+
+78
+00:03:51,331 --> 00:03:53,798
+and every incident is logged with its ID,
+
+79
+00:03:53,921 --> 00:03:57,329
+time, camera, event type, confidence,
+
+80
+00:03:57,349 --> 00:04:00,859
+priority, global person ID, evidence link,
+
+81
+00:04:00,893 --> 00:04:02,200
+and review status.
+
+82
+00:04:03,706 --> 00:04:07,242
+Together, this forms a six-layer real-time architecture:
+
+83
+00:04:07,288 --> 00:04:11,572
+video input, stream ingestion, the AI processing engine,
+
+84
+00:04:11,605 --> 00:04:13,479
+the decision and event engine,
+
+85
+00:04:13,680 --> 00:04:17,668
+a FastAPI backend with MongoDB or PostgreSQL,
+
+86
+00:04:17,830 --> 00:04:20,039
+and a React and Tailwind dashboard.
+
+87
+00:04:21,523 --> 00:04:25,163
+Every frame from every camera follows one monitoring loop:
+
+88
+00:04:25,350 --> 00:04:29,312
+read, preprocess, detect, track, match,
+
+89
+00:04:29,332 --> 00:04:33,358
+score, switch, notify, save, and log.
+
+90
+00:04:33,533 --> 00:04:36,013
+Operators can then review each incident,
+
+91
+00:04:36,072 --> 00:04:38,075
+and confirm it or mark it as a false
+
+92
+00:04:38,095 --> 00:04:38,757
+alarm.
+
+93
+00:04:40,256 --> 00:04:43,290
+The system will be evaluated for detection accuracy,
+
+94
+00:04:43,310 --> 00:04:47,246
+false alarms, tracking continuity, cross-camera matching,
+
+95
+00:04:47,369 --> 00:04:50,634
+ID switches, processing speed, latency,
+
+96
+00:04:50,668 --> 00:04:54,617
+dashboard response, camera switching, and logging correctness.
+
+97
+00:04:56,113 --> 00:04:59,817
+Compared with conventional CCTV, the difference is clear.
+
+98
+00:04:59,992 --> 00:05:02,961
+Manual observation becomes AI monitoring.
+
+99
+00:05:03,149 --> 00:05:05,783
+Passive display becomes active detection.
+
+100
+00:05:05,958 --> 00:05:09,043
+Single-camera tracking becomes cross-camera identity.
+
+101
+00:05:09,219 --> 00:05:12,059
+And manual evidence search becomes automatic,
+
+102
+00:05:12,105 --> 00:05:13,940
+organised incident records.
+
+103
+00:05:15,433 --> 00:05:19,756
+VigiLense can serve universities, airports and transport hubs,
+
+104
+00:05:19,776 --> 00:05:23,441
+shopping malls, hospitals, offices, banks,
+
+105
+00:05:23,461 --> 00:05:28,235
+warehouses, and high-security facilities, with research value in detection,
+
+106
+00:05:28,307 --> 00:05:32,269
+multi-object tracking, re-identification and gait recognition.
+
+107
+00:05:33,743 --> 00:05:35,321
+It is built with Python,
+
+108
+00:05:35,341 --> 00:05:42,640
+PyTorch, YOLO26, OpenCV, ByteTrack, Torchreid and OpenGait for intelligence;
+
+109
+00:05:42,699 --> 00:05:47,228
+FastAPI, React, Tailwind and a database for the application;
+
+110
+00:05:47,377 --> 00:05:50,257
+running on an RTX-class GPU with at least three
+
+111
+00:05:50,277 --> 00:05:51,120
+cameras.
+
+112
+00:05:52,613 --> 00:05:55,093
+The work is planned across eight months,
+
+113
+00:05:55,113 --> 00:05:57,244
+from requirements and data collection,
+
+114
+00:05:57,278 --> 00:06:01,369
+through training, tracking, re-identification and the dashboard,
+
+115
+00:06:01,402 --> 00:06:04,873
+to integration, testing and the final demonstration,
+
+116
+00:06:05,010 --> 00:06:08,353
+within an estimated budget of one hundred thousand rupees.
+
+117
+00:06:09,843 --> 00:06:13,741
+Looking ahead, VigiLense can grow with ethically approved facial
+
+118
+00:06:13,761 --> 00:06:17,761
+recognition, licence plate recognition, a mobile alert app,
+
+119
+00:06:18,000 --> 00:06:21,125
+edge and cloud deployment, role-based access,
+
+120
+00:06:21,145 --> 00:06:25,428
+encrypted evidence, and integration with emergency response systems.
+
+121
+00:06:26,913 --> 00:06:30,501
+VigiLense is a Computer Engineering final year project by
+
+122
+00:06:30,521 --> 00:06:34,135
+Hassnain Khan, Khurram Ali Khan and Yasir Hassan,
+
+123
+00:06:34,271 --> 00:06:37,563
+under the supervision of Doctor Syed Khawar Hussain Shah.
+
+124
+00:06:39,063 --> 00:06:40,073
+VigiLense.
+
+125
+00:06:40,249 --> 00:06:43,011
+Watching every feed, so nothing is missed.
+
+126
+00:06:43,200 --> 00:06:43,797
+Thank you.

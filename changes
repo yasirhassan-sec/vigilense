@@ -1,0 +1,16 @@
+### Commit: Configure GPU acceleration and prepare weapon detection dataset
+
+**Changes:**
+- Verified NVIDIA RTX 3050 GPU and CUDA-enabled PyTorch.
+- Verified GPU inference with the Vigilense backend.
+- Tested live webcam detection and dashboard functionality.
+- Inspected existing YOLO detection models and class configurations.
+- Integrated Roboflow dataset downloading.
+- Added `download_weapon_dataset.py`.
+- Downloaded the public gun and knife detection dataset.
+- Added `inspect_class5.py` for annotation inspection.
+- Analyzed YOLO annotation counts and class mappings.
+- Generated sample contact sheets for dataset validation.
+
+**Current status:**
+Dataset inspection and cleaning are in progress. Model training and integration have not started.
