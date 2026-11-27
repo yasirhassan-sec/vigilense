@@ -9,6 +9,24 @@ Hardware / stack: RTX 3050 (4 GB), Python 3.11, Ultralytics 8.4.177, YOLO26n, Fa
 
 ---
 
+## Timeline (from the git history, first day to now)
+
+| Date | Work done |
+|---|---|
+| 14–15 Oct | Project started: environment, folder structure, requirements; repository created on GitHub. |
+| 18 Oct | End-to-end skeleton: fire/smoke detection, incident log and live page. README, run-commands guide and training notebook with results. **Multi-camera support with a priority-based main view.** VigiLense logo, multi-camera app and architecture diagrams. |
+| 20 Oct | `Architecture/` folder with system diagrams. |
+| 21 Oct | **Weapon detection (gun, knife) added** to the multi-camera app; weapon training notebook with results (test mAP50 0.903). |
+| 18 Nov | Weapon dataset audit scripts and a cleaned split plan (`feature/clean-weapon-dataset`): duplicate/near-duplicate analysis, group-based split. `--device` option so the app also runs on CPU-only laptops. Flowchart and deployment diagrams. Webcam frame recorder for hard-negative and test data. |
+| 22–23 Nov | False-alarm baseline for the old weapon model, webcam review and extra-dataset tools (Roboflow downloads, Zenodo DangerousItems). |
+| 25 Nov | **weapons_v3** trained locally on merged, group-split data; false-alarm comparison tools; `eval_by_source.py` fixed for Windows. |
+| 27 Nov | **fire_smoke_v2** (D-Fire) and **weapons_v4** (extra knife data) built, trained and evaluated; app defaults switched to them with `--smoke-conf`; `MODEL_CARD.md` written; weights pushed. |
+| 27–28 Nov | **Tracking and re-ID** (`feature/tracking`): ByteTrack per camera, appearance re-ID gallery, weapon holder attribution, merge step that cut duplicate identities. This progress report. |
+
+What changed along the way: the first models scored well on their own test split (weapon mAP50 0.903) but the audit showed near-duplicate images leaking between train and test and false alarms on webcam footage. Since then the work has been about honest evaluation (group splits, held-out webcam sessions) and removing false alarms, then moving on to the tracking items from the proposal.
+
+---
+
 ## 1. Detection models
 
 ### Fire & smoke (`weights/fire_smoke_v2.pt`)
