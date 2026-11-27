@@ -32,4 +32,12 @@ class*_samples.csv
 dup_pairs*.jpg
 near_dups.csv
 groups.csv
-evidence_testing_backup/evidence_testing_backup/
+evidence_testing_backup/
+
+# Re-ID model (downloaded by Ultralytics on first use)
+*.onnx
+
+# One-off local copies and the large split table
+backend/app_patched.py
+backend/app_before_filters.py
+split_plan.csv

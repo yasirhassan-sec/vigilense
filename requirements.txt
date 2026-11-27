@@ -58,3 +58,9 @@ urllib3==2.8.0
 uvicorn==0.54.0
 watchfiles==1.3.0
 websockets==17.2
+
+# Appearance re-ID (backend/reid_gallery.py, --reid). For GPU use onnxruntime-gpu instead (needs matching CUDA/cuDNN;
+# without it the re-ID model runs on the CPU, which works but is slower).
+onnxruntime==1.32.0
+
+# Tests: pip install pytest

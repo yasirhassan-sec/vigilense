@@ -14,6 +14,8 @@ Then open http://127.0.0.1:8000
 False-alarm controls (on by default):
   --confirm 3 --window 5   a threat must be seen in 3 of the last 5 loops before it alerts (--confirm 1 = off)
   --no-lookalike           turn off the phone/remote/mouse filter for gun/knife boxes
+  --no-track               turn off person tracking; --track-buffer N keeps lost IDs for N loops
+  --reid                   appearance re-ID: one global ID per person (G1, G2) across cameras; tune with --reid-thr
   --smoke-conf 0.7         smoke needs this confidence (fire uses --conf); lower it to see fainter smoke
 """
 
@@ -32,6 +34,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from ultralytics import YOLO
+from ultralytics.trackers.byte_tracker import BYTETracker
+from ultralytics.utils import YAML, IterableSimpleNamespace
+from ultralytics.utils.checks import check_yaml
 
 ROOT = Path(__file__).resolve().parent.parent  # C:\vigilense
 EVIDENCE = ROOT / "evidence"
@@ -60,6 +65,15 @@ parser.add_argument("--no-lookalike", action="store_true",
                     help="do not drop gun/knife boxes that sit on a phone/remote/mouse found by the person model")
 parser.add_argument("--lookalike-overlap", type=float, default=0.5,
                     help="drop a gun/knife box when this share of the smaller box overlaps a look-alike object")
+parser.add_argument("--no-track", action="store_true", help="turn person tracking (ByteTrack, one tracker per camera) off")
+parser.add_argument("--track-buffer", type=int, default=15,
+                    help="detection loops a person may vanish before its ID is dropped (about 5 loops per second per camera)")
+parser.add_argument("--reid", action="store_true",
+                    help="give each real person one global ID (G1, G2, ...) by appearance, also across cameras (needs tracking)")
+parser.add_argument("--reid-model", default="yolo26n-reid.onnx", help="ReID model (downloaded on first use)")
+parser.add_argument("--reid-thr", type=float, default=0.62,
+                    help="appearance similarity needed to reuse an existing global ID (higher = stricter, fewer wrong merges)")
+parser.add_argument("--reid-max-age", type=float, default=600.0, help="seconds an unseen person stays in the gallery")
 parser.add_argument("--device", default=None,
                     help="'0' for the first GPU or 'cpu' (default: GPU if available, otherwise CPU)")
 args = parser.parse_args()
@@ -118,6 +132,13 @@ def resolve(p: str) -> Path:
     return path
 
 
+def make_tracker():
+    """One ByteTrack instance per camera, so track IDs of different cameras never mix."""
+    cfg = IterableSimpleNamespace(**YAML.load(check_yaml("bytetrack.yaml")))
+    cfg.track_buffer = args.track_buffer
+    return BYTETracker(cfg)
+
+
 # ---------------------------------------------------------------- database
 def db():
     con = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -133,18 +154,24 @@ with db() as con:
                time TEXT, camera TEXT, label TEXT, confidence REAL,
                persons INTEGER, snapshot TEXT)"""
     )
+    cols = {r[1] for r in con.execute("PRAGMA table_info(incidents)")}      # add tracking columns to an older database
+    for col in ("track_ids", "holder_id"):
+        if col not in cols:
+            con.execute(f"ALTER TABLE incidents ADD COLUMN {col} TEXT")
 
 
-def log_incident(camera, label, conf, persons, frame):
+def log_incident(camera, label, conf, persons, frame, track_ids="", holder=""):
     ts = datetime.now()
     name = f"{ts:%Y%m%d_%H%M%S}_{camera}_{label}.jpg"
     cv2.imwrite(str(EVIDENCE / name), frame)
     with db() as con:
         con.execute(
-            "INSERT INTO incidents (time, camera, label, confidence, persons, snapshot) VALUES (?,?,?,?,?,?)",
-            (ts.isoformat(timespec="seconds"), camera, label, round(conf, 3), persons, name),
+            "INSERT INTO incidents (time, camera, label, confidence, persons, snapshot, track_ids, holder_id)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (ts.isoformat(timespec="seconds"), camera, label, round(conf, 3), persons, name, track_ids, holder),
         )
-    print(f"[ALERT] {ts:%H:%M:%S} {camera}: {label} ({conf:.2f}), persons={persons}")
+    print(f"[ALERT] {ts:%H:%M:%S} {camera}: {label} ({conf:.2f}), persons={persons}"
+          + (f", ids=[{track_ids}]" if track_ids else "") + (f", held by {holder}" if holder else ""))
 
 
 # ---------------------------------------------------------------- cameras
@@ -159,6 +186,9 @@ class Camera:
         self.raw = None            # newest frame from the source
         self.annotated = None      # newest frame with boxes drawn
         self.persons = 0
+        self.person_ids = []       # track IDs of the people currently tracked on this camera
+        self.tracker = None        # created by the detection loop
+        self.reset_tracker = False # set when a video file restarts
         self.threats = []          # [(label, conf), ...]
         self.score = 0
         self.fps = 0.0
@@ -180,6 +210,7 @@ class Camera:
             if not ok:
                 if self.is_file:                       # loop video files
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    self.reset_tracker = True              # same video again: start track IDs from 1
                     continue
                 self.online = False                    # camera dropped: retry every 2 s
                 time.sleep(2)
@@ -204,9 +235,11 @@ state = {"main": 0, "loop_fps": 0.0}
 
 
 # ---------------------------------------------------------------- detection loop
-def draw(frame, person_boxes, threats, name, score, confirmed=(), dropped=(), lookalikes=()):
+def draw(frame, person_boxes, threats, name, score, confirmed=(), dropped=(), lookalikes=(), tracked=()):
     for x1, y1, x2, y2 in person_boxes:
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 180, 0), 2)
+    for tid, (x1, y1, x2, y2) in tracked:                          # tracked person: ID tag in the top-left corner
+        cv2.putText(frame, f"{tid}", (int(x1) + 4, int(y1) + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 180, 0), 2)
     for obj, conf, (x1, y1, x2, y2) in lookalikes:                 # phone / remote / mouse: thin grey
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (170, 170, 170), 1)
         cv2.putText(frame, f"{obj} {conf:.2f}", (int(x1), min(frame.shape[0] - 5, int(y2) + 14)),
@@ -237,6 +270,11 @@ def detection_loop():
     print(f"Weapon model: {weapon_path.name if weapon_model else 'off'} | confirm {args.confirm} of {args.window} loops"
           f" | look-alike filter {'off' if args.no_lookalike else 'on (phone, remote, mouse)'}")
     person_classes = [0] if args.no_lookalike else [0, *LOOKALIKE]
+    gallery = None
+    if args.reid and not args.no_track:
+        from reid_gallery import Gallery                       # backend/reid_gallery.py
+        gallery = Gallery(args.reid_model, DEVICE, args.reid_thr, args.reid_max_age)
+        print(f"Re-ID on: {args.reid_model} | match threshold {args.reid_thr} | '#n?' = not matched yet, 'Gn' = global ID")
 
     n, t0 = 0, time.time()
     while True:
@@ -270,6 +308,18 @@ def detection_loop():
                     persons.append(b)
                 elif c in LOOKALIKE:
                     lookalikes.append((LOOKALIKE[c], s, b))
+            tracked = []                                                   # [(track id, box), ...]
+            if not args.no_track:
+                if cam.tracker is None or cam.reset_tracker:
+                    cam.tracker, cam.reset_tracker = make_tracker(), False
+                    if gallery:
+                        gallery.reset_camera(cam.name)
+                is_person = (p.boxes.cls == 0) & (p.boxes.conf >= 0.4)     # people only, same rule as the person count
+                rows = cam.tracker.update(p.boxes[is_person].cpu().numpy(), frame)
+                local = [(int(r[4]), r[:4].tolist()) for r in rows]
+                gids = gallery.update(cam.name, frame, local) if gallery else {}
+                tracked = [(f"G{gids[tid]}" if gids.get(tid) else f"#{tid}" + ("?" if gallery else ""), box)
+                           for tid, box in local]                          # label: G3 = global ID, #7? = not matched yet
             threats = [(t.names[int(c)], float(s), b.tolist())
                        for c, s, b in zip(t.boxes.cls, t.boxes.conf, t.boxes.xyxy)
                        if not (t.names[int(c)] == "smoke" and float(s) < args.smoke_conf)]
@@ -292,14 +342,22 @@ def detection_loop():
             confirmed = {l: c for l, c in best.items() if sum(cam.history[l]) >= args.confirm}
 
             score = max([PRIORITY.get(l, 0) for l in confirmed] + [0]) + PER_PERSON * len(persons)
-            annotated = draw(frame, persons, threats, cam.name, score, confirmed, dropped, lookalikes)
+            annotated = draw(frame, persons, threats, cam.name, score, confirmed, dropped, lookalikes, tracked)
             for label, conf in confirmed.items():                  # one alert per class per cooldown
                 if time.time() - cam.last_alert.get(label, 0) > args.cooldown:
                     cam.last_alert[label] = time.time()
-                    log_incident(cam.name, label, conf, len(persons), annotated)
+                    holder = ""
+                    if label in WEAPONS and tracked:                       # which tracked person overlaps the weapon box most
+                        wbox = max((t_ for t_ in threats if t_[0] == label), key=lambda t_: t_[1])[2]
+                        tid, share = max(((i, overlap(wbox, tb)) for i, tb in tracked), key=lambda x: x[1])
+                        if share >= 0.3:
+                            holder = str(tid)
+                    log_incident(cam.name, label, conf, len(persons), annotated,
+                                 ",".join(str(i) for i, _ in tracked), holder)
 
             with cam.lock:
                 cam.annotated, cam.persons, cam.score = annotated, len(persons), score
+                cam.person_ids = [i for i, _ in tracked]
                 cam.threats = [(l, round(c, 2)) for l, c in confirmed.items()]
 
         # dynamic camera switching: show the highest-priority camera, keep the current one on ties
@@ -322,7 +380,7 @@ def status():
         "main": state["main"],
         "loop_fps": state["loop_fps"],
         "cameras": [{"id": c.idx, "name": c.name, "online": c.online, "persons": c.persons,
-                     "threats": c.threats, "score": c.score} for c in cams],
+                     "threats": c.threats, "score": c.score, "person_ids": c.person_ids} for c in cams],
     }
 
 
@@ -396,12 +454,12 @@ async function refresh(){
     const t = document.getElementById('t'+c.id);
     t.className = 'tile' + (c.threats.length ? ' alert' : '') + (c.id === s.main ? ' main' : '');
     document.getElementById('c'+c.id).innerText =
-      `${c.name} ${c.online ? '' : '(offline) '}| persons ${c.persons} | ${c.threats.map(x=>x[0]+' '+x[1]).join(', ') || 'clear'}`;
+      `${c.name} ${c.online ? '' : '(offline) '}| persons ${c.persons}${c.person_ids.length ? ' (ids ' + c.person_ids.join(',') + ')' : ''} | ${c.threats.map(x=>x[0]+' '+x[1]).join(', ') || 'clear'}`;
   }
   const rows = await (await fetch('/api/incidents?limit=20')).json();
   document.getElementById('inc').innerHTML = '<tr><th>Time</th><th>Event</th><th>Snapshot</th></tr>' +
     rows.map(r=>`<tr><td>${r.time.replace('T',' ')}<br>${r.camera}</td>
-      <td class="${r.label}">${r.label} ${r.confidence}<br>persons: ${r.persons}</td>
+      <td class="${r.label}">${r.label} ${r.confidence}<br>persons: ${r.persons}${r.track_ids ? ' (ids ' + r.track_ids + ')' : ''}${r.holder_id ? '<br>held by ' + r.holder_id : ''}</td>
       <td><a href="/evidence/${r.snapshot}" target="_blank"><img class="thumb" src="/evidence/${r.snapshot}"></a></td></tr>`).join('');
 }
 setInterval(refresh, 1500); refresh();

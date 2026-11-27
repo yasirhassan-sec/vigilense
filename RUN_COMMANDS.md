@@ -26,6 +26,7 @@ python backend\app.py --source data\fire.mp4                              # one 
 python backend\app.py --source 0                                          # laptop webcam
 python backend\app.py --source 0 data\fire.mp4 data\cam3.mp4              # mix webcam and videos
 python backend\app.py --source "rtsp://user:pass@IP:554/stream"           # IP camera (later)
+python backend\app.py --source data\weapon.mp4 --device 0                 # run on the GPU (default: automatic)
 ```
 
 The page shows a **main view** (the camera with the highest priority: fire 100, smoke 60, +2 per person),
@@ -36,11 +37,31 @@ Optional settings (add to any command above):
 ```powershell
 python backend\app.py --source data\cam1.mp4 data\cam2.mp4 --names Gate Lobby   # camera names (default CAM-1, CAM-2, ...)
 python backend\app.py --source data\fire.mp4 --conf 0.25      # lower = catches more fire, more false alarms (default 0.35)
+python backend\app.py --source data\fire.mp4 --smoke-conf 0.5 # smoke confidence (default 0.7; lower shows fainter smoke but also shadows)
+python backend\app.py --source data\knife.mp4 --weapon-conf 0.4   # gun/knife confidence (default 0.5)
+python backend\app.py --source data\knife.mp4 --confirm 1     # alert on the first detection (default 3 of the last 5 loops)
+python backend\app.py --source data\knife.mp4 --no-lookalike  # turn off the phone/remote/mouse filter
 python backend\app.py --source data\fire.mp4 --every 2        # skip loops to save CPU (default 1 = every loop)
 python backend\app.py --source data\fire.mp4 --cooldown 30    # seconds before the same alert repeats on a camera (default 10)
 python backend\app.py --source data\fire.mp4 --width 480      # smaller frames = faster on CPU (default 640)
 python backend\app.py --source data\fire.mp4 --port 8001      # use another port if 8000 is busy
 ```
+
+### People tracking and re-ID
+
+Tracking is on by default (one ByteTrack tracker per camera). Re-ID is optional and needs `onnxruntime`.
+
+```powershell
+python backend\app.py --source data\weapon.mp4 --no-track                 # tracking off
+python backend\app.py --source data\weapon.mp4 --track-buffer 30         # keep lost IDs longer (default 15 loops)
+python backend\app.py --source data\fire.mp4 data\fire1.mp4 data\knife.mp4 data\weapon.mp4 --names FIRE-1 FIRE-2 KNIFE WEAPON --device 0 --reid --reid-thr 0.62
+python tools\tracking\test_tracking.py data\weapon.mp4                    # tracker only, saves runs\track_test_bytetrack.mp4
+python tools\tracking\test_reid.py data\weapon.mp4                        # similarity between tracked people
+```
+
+`#n?` = local track not matched yet, `Gn` = global person ID. Raise `--reid-thr` if two different people get merged,
+lower it if one person keeps getting new IDs. Two IDs are also merged automatically when they look alike and were
+never visible together.
 
 **Stop the app:** click in the PowerShell window and press `Ctrl+C`.
 
@@ -51,8 +72,9 @@ python backend\app.py --source data\fire.mp4 --port 8001      # use another port
 Opens a window with boxes. Press `q` to stop. Results are saved in `runs\detect\predict...`.
 
 ```powershell
-yolo predict model=weights\fire_smoke_v1.pt source="data\fire.mp4" show=True conf=0.3   # fire/smoke model on a video
-yolo predict model=weights\fire_smoke_v1.pt source=0 show=True conf=0.3                 # fire/smoke model on webcam
+yolo predict model=weights\fire_smoke_v2.pt source="data\fire.mp4" show=True conf=0.3   # fire/smoke model on a video
+yolo predict model=weights\fire_smoke_v2.pt source=0 show=True conf=0.3                 # fire/smoke model on webcam
+yolo predict model=weights\weapons_v4.pt source="data\knife.mp4" show=True conf=0.4    # gun/knife model on a video
 yolo predict model=weights\yolo26n.pt source="data\fire.mp4" show=True classes=0        # person detection only
 ```
 
@@ -110,7 +132,25 @@ Rename-Item data\fire.mp4.mp4 fire.mp4        # fix a doubled extension
 
 ---
 
-## 8) Training (Google Colab, not the laptop)
+## 8) Evaluate the models
+
+Run from the project root. See [MODEL_CARD.md](MODEL_CARD.md) for what the numbers mean.
+
+```powershell
+python tools\eval\eval_by_source.py --model weights\weapons_v4.pt --data datasets\VigilenseWeapons\weapons_v4   # results per data source
+python tools\eval\compare_false_alarms.py            # weapon false alarms on held-out webcam sessions
+python tools\eval\compare_smoke_false_alarms.py      # smoke false alarms on held-out webcam sessions
+python tools\eval\analyze_knife_misses.py            # where knives are missed (size, source)
+pytest tests                                          # unit tests
+```
+
+---
+
+## 9) Training (Google Colab or the local GPU)
+
+Local: `python train.py --name weapons_v4` (add `--resume` to continue a stopped run).
+
+On Colab:
 
 1. Open `notebooks\train_fire_smoke_dfire.ipynb` in Google Colab (**File → Upload notebook**).
 2. **Runtime → Change runtime type → T4 GPU**.
