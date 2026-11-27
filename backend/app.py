@@ -14,6 +14,7 @@ Then open http://127.0.0.1:8000
 False-alarm controls (on by default):
   --confirm 3 --window 5   a threat must be seen in 3 of the last 5 loops before it alerts (--confirm 1 = off)
   --no-lookalike           turn off the phone/remote/mouse filter for gun/knife boxes
+  --smoke-conf 0.7         smoke needs this confidence (fire uses --conf); lower it to see fainter smoke
 """
 
 import argparse
@@ -42,10 +43,12 @@ parser.add_argument("--source", nargs="+", default=["data/fire.mp4"],
                     help="one or more sources: video files, RTSP urls, or webcam numbers (0, 1)")
 parser.add_argument("--names", nargs="+", help="camera names, same order as --source (default CAM-1, CAM-2, ...)")
 parser.add_argument("--person-model", default="weights/yolo26n.pt")
-parser.add_argument("--threat-model", default="weights/fire_smoke_v1.pt")
-parser.add_argument("--weapon-model", default="weights/weapons_v1.pt", help="gun/knife model (skipped if the file is missing)")
+parser.add_argument("--threat-model", default="weights/fire_smoke_v2.pt")
+parser.add_argument("--weapon-model", default="weights/weapons_v4.pt", help="gun/knife model (skipped if the file is missing)")
 parser.add_argument("--conf", type=float, default=0.35, help="min confidence for fire/smoke")
 parser.add_argument("--weapon-conf", type=float, default=0.5, help="min confidence for gun/knife")
+parser.add_argument("--smoke-conf", type=float, default=0.7,
+                    help="min confidence for smoke only (dark shadows score 0.4-0.7 as smoke); fire still uses --conf")
 parser.add_argument("--every", type=int, default=1, help="skip frames: process each camera every Nth loop")
 parser.add_argument("--cooldown", type=float, default=10.0, help="seconds before the same alert repeats on a camera")
 parser.add_argument("--width", type=int, default=640, help="resize frames to this width")
@@ -268,7 +271,8 @@ def detection_loop():
                 elif c in LOOKALIKE:
                     lookalikes.append((LOOKALIKE[c], s, b))
             threats = [(t.names[int(c)], float(s), b.tolist())
-                       for c, s, b in zip(t.boxes.cls, t.boxes.conf, t.boxes.xyxy)]
+                       for c, s, b in zip(t.boxes.cls, t.boxes.conf, t.boxes.xyxy)
+                       if not (t.names[int(c)] == "smoke" and float(s) < args.smoke_conf)]
             dropped = []
             if w is not None:
                 weapons = one_label_per_object([(w.names[int(c)], float(s), b.tolist())
